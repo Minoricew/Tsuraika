@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "tsuraika"
+version = "1.0.0"
+description = "The Next Generation of Fast Reverse Proxy"
+authors = ["CocoTeirina"]
+license = "GPL-3.0"
+readme = "README.md"
+packages = [{include = "tsuraika"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+msgpack = "^1.0.5"
+typer = {extras = ["all"], version = "^0.9.0"}
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.3.0"
+isort = "^5.12.0"
+pylint = "^2.17.0"
+pytest = "^7.3.1"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+
+[tool.poetry.scripts]
+tsuraika = "tsuraika.cli:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+
+[tool.pylint.messages_control]
+disable = [
+    "C0111",  # missing-docstring
+    "C0103",  # invalid-name
+    "C0330",  # bad-continuation
+    "C0326",  # bad-whitespace
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=tsuraika --cov-report=term-missing" 

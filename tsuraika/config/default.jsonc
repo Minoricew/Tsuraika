@@ -1,0 +1,8 @@
+{
+  "server_addr": "127.0.0.1", // Server address
+  "server_port": 7000, // Server port
+  "local_addr": "127.0.0.1", // Local service address
+  "local_port": 8070, // Local service port
+  "proxy_name": "test_proxy", // Proxy name
+  "remote_port": 3001 // Remote service port
+}
