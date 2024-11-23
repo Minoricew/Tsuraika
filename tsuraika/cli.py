@@ -8,7 +8,7 @@ from rich import print
 from rich.console import Console
 from importlib.metadata import version
 
-from .common import logger, ClientConfig
+from .common import VERBOSE, logger, ClientConfig, setup_logging
 from .server import ProxyServer
 from .client import ProxyClient, load_config
 
@@ -51,14 +51,34 @@ def common(
 def server(
     port: int = typer.Option(7000, "--port", "-p", help="Server port (default: 7000)"),
     debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging"),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose logging"
+    ),
+    heartbeat_interval: int = typer.Option(
+        60, "--heartbeat", "-hb", help="Server heartbeat interval in seconds (min 5s)"
+    ),
+    basic_colors: bool = typer.Option(
+        False,
+        "--basic-colors",
+        "-bc",
+        help="Use basic ANSI colors instead of hex colors",
+    ),
 ):
     """Start the server"""
-    if debug:
+    if heartbeat_interval < 5:
+        console.print("[red]Error: Heartbeat interval must be at least 5 seconds[/red]")
+        sys.exit(1)
+
+    global logger
+    logger = setup_logging(use_basic_colors=basic_colors)
+    if verbose:
+        logger.setLevel(VERBOSE)
+    elif debug:
         logger.setLevel(logging.DEBUG)
 
     try:
         with console.status("[bold green]Starting server..."):
-            server_instance = ProxyServer(port)
+            server_instance = ProxyServer(port, heartbeat_interval=heartbeat_interval)
             console.print(f"[green]Server started on port {port}[/green]")
 
         asyncio.run(server_instance.start())
@@ -89,9 +109,22 @@ def client(
     ),
     proxy_name: str = typer.Option(None, "--name", "-n", help="Proxy name"),
     debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging"),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose logging"
+    ),
+    basic_colors: bool = typer.Option(
+        False,
+        "--basic-colors",
+        "-bc",
+        help="Use basic ANSI colors instead of hex colors",
+    ),
 ):
     """Start the client"""
-    if debug:
+    global logger
+    logger = setup_logging(use_basic_colors=basic_colors)
+    if verbose:
+        logger.setLevel(VERBOSE)
+    elif debug:
         logger.setLevel(logging.DEBUG)
 
     try:
