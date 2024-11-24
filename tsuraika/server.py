@@ -67,7 +67,12 @@ class ProxyServer:
             ):
                 del self.remote_connections[proxy_name][connection_id]
             writer.close()
-            await writer.wait_closed()
+            try:
+                await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Timeout waiting for writer to close for connection {connection_id} from {client_addr}"
+                )
             logger.debug(f"Remote connection closed from {client_addr}")
 
     async def create_remote_server(self, proxy_name: str, remote_port: int) -> bool:
@@ -84,26 +89,50 @@ class ProxyServer:
             logger.error(f"Failed to create remote server: {e}")
             return False
 
-    async def cleanup_client(self, proxy_name: str):
+    async def _cleanup_client_impl(self, proxy_name: str):
+        logger.debug(f"Removing {proxy_name} from clients dict...")
         if proxy_name in self.proxy_clients:
             del self.proxy_clients[proxy_name]
 
+        logger.debug(f"Closing remote connections for {proxy_name}...")
+        if proxy_name in self.remote_connections:
+            connection_ids = list(self.remote_connections[proxy_name].keys())
+            for connection_id in connection_ids:
+                writer = self.remote_connections[proxy_name][connection_id]
+                logger.debug(
+                    f"Closing remote connection {proxy_name}_{connection_id}..."
+                )
+                writer.close()
+                try:
+                    await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Timeout waiting for remote connection {proxy_name}_{connection_id} to close"
+                    )
+            del self.remote_connections[proxy_name]
+
+        logger.debug(f"Removing {proxy_name} from proxy_servers dict...")
         if proxy_name in self.proxy_servers:
             server = self.proxy_servers[proxy_name]
             server.close()
-            await server.wait_closed()
+            try:
+                await asyncio.wait_for(server.wait_closed(), timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout waiting for server to close for {proxy_name}")
             del self.proxy_servers[proxy_name]
 
-        if proxy_name in self.remote_connections:
-            for connection_id, writer in self.remote_connections[proxy_name].items():
-                writer.close()
-                await writer.wait_closed()
-            del self.remote_connections[proxy_name]
-
+        logger.debug(f"Removing {proxy_name} from heartbeats dict...")
         if proxy_name in self.client_heartbeats:
             del self.client_heartbeats[proxy_name]
 
         logger.info(f"Cleaned up resources for {proxy_name}")
+
+    async def cleanup_client(self, proxy_name: str):
+        cleanup_task = asyncio.create_task(self._cleanup_client_impl(proxy_name))
+        try:
+            await asyncio.wait_for(cleanup_task, timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"Cleanup for {proxy_name} timed out")
 
     async def send_heartbeat(self, writer, proxy_name):
         message = {
@@ -118,15 +147,19 @@ class ProxyServer:
 
     async def check_client_heartbeats(self):
         while True:
-            await asyncio.sleep(5)
+            tasks = []
             current_time = asyncio.get_event_loop().time()
+
             for proxy_name, last_time in list(self.client_heartbeats.items()):
                 if (
                     current_time - last_time
                     > self.heartbeat_interval + self.heartbeat_timeout
                 ):
-                    logger.warning(f"Client {proxy_name} heartbeat timeout")
-                    await self.cleanup_client(proxy_name)
+                    tasks.append(self.cleanup_client(proxy_name))
+
+            if tasks:
+                await asyncio.gather(*tasks)
+            await asyncio.sleep(5)
 
     async def handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

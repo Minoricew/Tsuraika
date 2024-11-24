@@ -230,7 +230,11 @@ class ProxyClient:
             logger.error(f"Unexpected error in handle_server_data: {e}")
             logger.exception(e)
         finally:
-            for connection_id, (_, writer) in self.local_connections.items():
+            connection_ids = list(self.local_connections.keys())
+
+            for connection_id in connection_ids:
+                _, writer = self.local_connections[connection_id]
+                logger.debug(f"Closing local connection {connection_id}...")
                 writer.close()
                 await writer.wait_closed()
             self.local_connections.clear()
@@ -248,7 +252,7 @@ class ProxyClient:
 
             try:
                 cleanup_response = await asyncio.wait_for(
-                    self.reader.read(8192), timeout=5.0
+                    self.reader.read(8192), timeout=8.0
                 )
                 unpacked_response = msgpack.unpackb(cleanup_response)
                 if (
@@ -261,9 +265,17 @@ class ProxyClient:
             except asyncio.TimeoutError:
                 logger.warning("Timeout waiting for cleanup response from server")
 
-        for connection_id, (_, writer) in self.local_connections.items():
+        connection_ids = list(self.local_connections.keys())
+
+        for connection_id in connection_ids:
+            _, writer = self.local_connections[connection_id]
+            logger.debug(f"Closing local connection {connection_id}...")
             writer.close()
             await writer.wait_closed()
+            if connection_id in self.local_connections:
+                del self.local_connections[connection_id]
+            logger.debug(f"Closed local connection {connection_id}")
+
         self.local_connections.clear()
 
         if self.server_writer and not self.connection_lost:
@@ -283,7 +295,7 @@ class ProxyClient:
                 )
                 return
             except Exception as e:
-                if self.connection_lost:
+                if self.connection_lost and not self.is_closing:
                     logger.info("Connection lost, retry in 3 seconds...")
                     await asyncio.sleep(3)
                 else:
@@ -295,6 +307,9 @@ class ProxyClient:
     async def start(self):
         while True:
             try:
+                if self.is_closing:
+                    sys.exit(0)
+
                 logger.info("Connecting to server...")
 
                 await self.connect_to_server()
